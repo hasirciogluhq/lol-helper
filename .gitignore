@@ -1,0 +1,31 @@
+# Binaries
+lol-helper
+lol-helper-*
+*.exe
+*.app
+
+# Build output
+/build/
+/dist/
+
+# Go workspace files
+go.work
+go.work.sum
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+temp/
