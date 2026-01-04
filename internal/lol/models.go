@@ -11,6 +11,7 @@ type GameState struct {
 	EnemyChamps []string
 	GameTime    int
 	IsConnected bool
+	AllPlayers  []lcu.LivePlayer
 }
 
 // Recommendation AI önerisi

@@ -89,3 +89,89 @@ type Item struct {
 	DisplayName string `json:"displayName"`
 	Slot        int    `json:"slot"`
 }
+
+// LiveGameData Live Client Data API yanıtı
+type LiveGameData struct {
+	ActivePlayer LiveActivePlayer `json:"activePlayer"`
+	AllPlayers   []LivePlayer     `json:"allPlayers"`
+	GameData     LiveGameStats    `json:"gameData"`
+}
+
+type LiveActivePlayer struct {
+	SummonerName string `json:"summonerName"`
+	Level        int    `json:"level"`
+	CurrentGold  float64 `json:"currentGold"`
+}
+
+type LivePlayer struct {
+	ChampionName    string       `json:"championName"`
+	IsBot           bool         `json:"isBot"`
+	IsDead          bool         `json:"isDead"`
+	Items           []LiveItem   `json:"items"`
+	Level           int          `json:"level"`
+	Position        string       `json:"position"`
+	RawChampionName string       `json:"rawChampionName"`
+	RespawnTimer    float64      `json:"respawnTimer"`
+	Runes           LiveRunes    `json:"runes"`
+	Scores          LiveScores   `json:"scores"`
+	SkinID          int          `json:"skinID"`
+	SummonerName    string       `json:"summonerName"`
+	SummonerSpells  LiveSpells   `json:"summonerSpells"`
+	Team            string       `json:"team"` // ORDER, CHAOS
+}
+
+type LiveItem struct {
+	CanUse      bool   `json:"canUse"`
+	Consumable  bool   `json:"consumable"`
+	Count       int    `json:"count"`
+	DisplayName string `json:"displayName"`
+	ItemID      int    `json:"itemID"`
+	Price       int    `json:"price"`
+	RawDescription string `json:"rawDescription"`
+	RawDisplayName string `json:"rawDisplayName"`
+	Slot        int    `json:"slot"`
+}
+
+type LiveRunes struct {
+	Keystone LiveRune `json:"keystone"`
+	PrimaryRuneTree LiveRuneTree `json:"primaryRuneTree"`
+	SecondaryRuneTree LiveRuneTree `json:"secondaryRuneTree"`
+}
+
+type LiveRune struct {
+	DisplayName string `json:"displayName"`
+	ID          int    `json:"id"`
+	RawDescription string `json:"rawDescription"`
+}
+
+type LiveRuneTree struct {
+	DisplayName string `json:"displayName"`
+	ID          int    `json:"id"`
+	RawDescription string `json:"rawDescription"`
+}
+
+type LiveScores struct {
+	Assists    int `json:"assists"`
+	CreepScore int `json:"creepScore"`
+	Deaths     int `json:"deaths"`
+	Kills      int `json:"kills"`
+	WardScore  float64 `json:"wardScore"`
+}
+
+type LiveSpells struct {
+	SummonerSpellOne LiveSpell `json:"summonerSpellOne"`
+	SummonerSpellTwo LiveSpell `json:"summonerSpellTwo"`
+}
+
+type LiveSpell struct {
+	DisplayName string `json:"displayName"`
+	RawDescription string `json:"rawDescription"`
+	RawDisplayName string `json:"rawDisplayName"`
+}
+
+type LiveGameStats struct {
+	GameTime float64 `json:"gameTime"`
+	MapName  string  `json:"mapName"`
+	MapNumber int    `json:"mapNumber"`
+	MapTerrain string `json:"mapTerrain"`
+}

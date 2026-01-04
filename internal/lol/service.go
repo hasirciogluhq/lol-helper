@@ -11,17 +11,19 @@ import (
 
 // Service LoL Helper ana servisi
 type Service struct {
-	lcuClient *lcu.Client
-	aiService *ai.Service
-	state     *HelperState
-	stopChan  chan struct{}
-	onUpdate  func(*HelperState)
+	lcuClient  *lcu.Client
+	liveClient *lcu.LiveClient
+	aiService  *ai.Service
+	state      *HelperState
+	stopChan   chan struct{}
+	onUpdate   func(*HelperState)
 }
 
 // NewService yeni bir servis oluşturur
 func NewService(onUpdate func(*HelperState)) (*Service, error) {
 	// LCU Client başlat (bağlantı hatası olsa bile devam et, polling ile deneyecek)
 	lcuClient, _ := lcu.NewClient()
+	liveClient := lcu.NewLiveClient()
 
 	// AI Service başlat
 	aiService, err := ai.NewService()
@@ -30,11 +32,12 @@ func NewService(onUpdate func(*HelperState)) (*Service, error) {
 	}
 
 	return &Service{
-		lcuClient: lcuClient,
-		aiService: aiService,
-		state:     NewHelperState(),
-		stopChan:  make(chan struct{}),
-		onUpdate:  onUpdate,
+		lcuClient:  lcuClient,
+		liveClient: liveClient,
+		aiService:  aiService,
+		state:      NewHelperState(),
+		stopChan:   make(chan struct{}),
+		onUpdate:   onUpdate,
 	}, nil
 }
 
@@ -107,6 +110,32 @@ func (s *Service) updateGameState() {
 
 	// State güncelle
 	s.state.UpdateFromLCU(gameData, summoner)
+
+	// Live Client Data (In-Game)
+	if s.state.Game.Phase == "InProgress" {
+		liveData, err := s.liveClient.GetAllGameData()
+		if err == nil {
+			s.state.Game.AllPlayers = liveData.AllPlayers
+
+			// Aktif oyuncuyu bul ve verilerini güncelle
+			for _, p := range liveData.AllPlayers {
+				if p.SummonerName == liveData.ActivePlayer.SummonerName {
+					s.state.Game.Gold = int(liveData.ActivePlayer.CurrentGold)
+
+					// İtemleri güncelle
+					var items []string
+					for _, item := range p.Items {
+						items = append(items, item.DisplayName)
+					}
+					s.state.Game.Items = items
+					break
+				}
+			}
+		} else {
+			log.Printf("Live Client Data alınamadı: %v", err)
+		}
+	}
+
 	s.state.Error = nil
 	s.notifyUpdate()
 }

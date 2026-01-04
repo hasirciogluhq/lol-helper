@@ -5,6 +5,7 @@ go 1.24.0
 require (
 	fyne.io/fyne/v2 v2.5.0
 	github.com/google/generative-ai-go v0.20.1
+	github.com/joho/godotenv v1.5.1
 	google.golang.org/api v0.258.0
 )
 
@@ -37,7 +38,6 @@ require (
 	github.com/googleapis/gax-go/v2 v2.15.0 // indirect
 	github.com/gopherjs/gopherjs v1.17.2 // indirect
 	github.com/jeandeaual/go-locale v0.0.0-20240223122105-ce5225dcaa49 // indirect
-	github.com/joho/godotenv v1.5.1 // indirect
 	github.com/jsummers/gobmp v0.0.0-20151104160322-e2ba15ffa76e // indirect
 	github.com/nicksnyder/go-i18n/v2 v2.4.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
