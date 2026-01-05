@@ -2,10 +2,12 @@ package gui
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
@@ -16,9 +18,16 @@ import (
 
 // MainWindow ana pencere yapısı
 type MainWindow struct {
-	app     fyne.App
-	window  fyne.Window
-	service *lol.Service
+	app         fyne.App
+	window      fyne.Window
+	service     *lol.Service
+	itemManager *ItemManager
+
+	// Cache
+	imageCache      map[int]fyne.Resource
+	lastPlayerNames string // Player isimlerini cache'le
+	lastAIItems     string
+	playersLoaded   bool // İlk yükleme yapıldı mı?
 
 	// UI Components
 	statusLabel *widget.Label
@@ -29,9 +38,9 @@ type MainWindow struct {
 	teamChaosContainer *fyne.Container
 
 	// AI Suggestion Section
-	suggestionLabel *widget.Label
-	nextItemsLabel  *widget.Label
-	strategyLabel   *widget.Label
+	suggestionLabel  *widget.Label
+	strategyLabel    *widget.Label
+	aiItemsContainer *fyne.Container
 }
 
 // NewMainWindow yeni bir ana pencere oluşturur
@@ -40,11 +49,13 @@ func NewMainWindow() *MainWindow {
 	a.Settings().SetTheme(&LoLTheme{})
 
 	w := a.NewWindow("LoL Helper AI")
-	w.Resize(fyne.NewSize(1000, 800))
+	w.Resize(fyne.NewSize(1200, 800))
 
 	mw := &MainWindow{
-		app:    a,
-		window: w,
+		app:         a,
+		window:      w,
+		itemManager: NewItemManager(),
+		imageCache:  make(map[int]fyne.Resource),
 	}
 
 	mw.setupUI()
@@ -61,20 +72,20 @@ func (mw *MainWindow) setupUI() {
 	mw.suggestionLabel = widget.NewLabel("Öneri: Bekleniyor...")
 	mw.suggestionLabel.Wrapping = fyne.TextWrapWord
 
-	mw.nextItemsLabel = widget.NewLabel("Sonraki İtemler: -")
 	mw.strategyLabel = widget.NewLabel("Strateji: -")
 	mw.strategyLabel.Wrapping = fyne.TextWrapWord
+
+	mw.aiItemsContainer = container.NewHBox()
 
 	// Team Containers
 	mw.teamOrderContainer = container.NewVBox()
 	mw.teamChaosContainer = container.NewVBox()
 
-	// Teams Split View
-	teamsSplit := container.NewHSplit(
-		container.NewVScroll(container.NewPadded(mw.teamOrderContainer)),
-		container.NewVScroll(container.NewPadded(mw.teamChaosContainer)),
+	// Teams Split View - No scroll, compact design
+	teamsSplit := container.NewGridWithColumns(2,
+		container.NewPadded(mw.teamOrderContainer),
+		container.NewPadded(mw.teamChaosContainer),
 	)
-	teamsSplit.SetOffset(0.5)
 
 	// Top Info
 	topInfo := container.NewVBox(
@@ -82,11 +93,34 @@ func (mw *MainWindow) setupUI() {
 		mw.phaseLabel,
 	)
 
-	// Bottom AI
-	bottomAI := widget.NewCard("AI Koç", "", container.NewVBox(
-		mw.suggestionLabel,
-		mw.nextItemsLabel,
+	// Bottom AI - Professional Layout
+	aiHeader := widget.NewLabelWithStyle("AI KOÇ ANALİZİ", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+
+	// Left: Strategy & Suggestion
+	aiTextContent := container.NewVBox(
+		widget.NewLabelWithStyle("Strateji", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		mw.strategyLabel,
+		widget.NewSeparator(),
+		widget.NewLabelWithStyle("Öneri", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		mw.suggestionLabel,
+	)
+
+	// Right: Recommended Items
+	aiItemsContent := container.NewVBox(
+		widget.NewLabelWithStyle("Önerilen Eşyalar", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
+		container.NewCenter(mw.aiItemsContainer),
+	)
+
+	// Split AI Section
+	aiSplit := container.NewGridWithColumns(2,
+		container.NewPadded(aiTextContent),
+		container.NewPadded(aiItemsContent),
+	)
+
+	bottomAI := widget.NewCard("", "", container.NewVBox(
+		aiHeader,
+		widget.NewSeparator(),
+		aiSplit,
 	))
 
 	// Main Layout
@@ -132,9 +166,29 @@ func (mw *MainWindow) UpdateUI(state *lol.HelperState) {
 	mw.phaseLabel.SetText(fmt.Sprintf("Oyun Fazı: %s", state.Game.Phase))
 
 	if state.Recommendation != nil {
-		mw.suggestionLabel.SetText(fmt.Sprintf("Öneri: %s", state.Recommendation.Suggestion))
-		mw.nextItemsLabel.SetText(fmt.Sprintf("Sonraki İtemler: %s", strings.Join(state.Recommendation.NextItems, ", ")))
-		mw.strategyLabel.SetText(fmt.Sprintf("Strateji: %s", state.Recommendation.Strategy))
+		mw.suggestionLabel.SetText(state.Recommendation.Suggestion)
+		mw.strategyLabel.SetText(state.Recommendation.Strategy)
+
+		// Update AI Items - only if changed
+		newAIItems := strings.Join(state.Recommendation.NextItems, ",")
+		if newAIItems != mw.lastAIItems {
+			mw.lastAIItems = newAIItems
+			mw.aiItemsContainer.Objects = nil
+			for _, itemName := range state.Recommendation.NextItems {
+				itemID := mw.itemManager.GetItemID(itemName)
+				if itemID != 0 {
+					img := mw.createItemImage(itemID)
+					itemContainer := container.NewVBox(
+						img,
+						widget.NewLabelWithStyle(itemName, fyne.TextAlignCenter, fyne.TextStyle{}),
+					)
+					mw.aiItemsContainer.Add(itemContainer)
+				} else {
+					mw.aiItemsContainer.Add(widget.NewLabel(itemName))
+				}
+			}
+			mw.aiItemsContainer.Refresh()
+		}
 	}
 
 	// Update Players
@@ -142,54 +196,153 @@ func (mw *MainWindow) UpdateUI(state *lol.HelperState) {
 }
 
 func (mw *MainWindow) updatePlayerLists(players []lcu.LivePlayer) {
-	mw.teamOrderContainer.Objects = nil
-	mw.teamChaosContainer.Objects = nil
+	// Player isimlerini string olarak oluştur
+	var currentPlayerNames string
+	for _, p := range players {
+		currentPlayerNames += p.SummonerName + ","
+	}
 
-	// Header for teams
-	mw.teamOrderContainer.Add(widget.NewLabelWithStyle("ORDER TEAM (MAVİ)", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}))
-	mw.teamChaosContainer.Add(widget.NewLabelWithStyle("CHAOS TEAM (KIRMIZI)", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}))
+	// Eğer player isimleri aynıysa hiçbir şey yapma (blinking önlemek için)
+	if currentPlayerNames == mw.lastPlayerNames && mw.playersLoaded {
+		return
+	}
+
+	// Boş liste geldi ama daha önce playerlar vardı - mevcut UI'ı koru
+	if len(players) == 0 && mw.playersLoaded {
+		return
+	}
+
+	// İlk kez yükleme veya gerçekten değişiklik var
+	mw.lastPlayerNames = currentPlayerNames
+	mw.playersLoaded = true
+
+	// Pre-build all elements first, then update containers atomically
+	orderPlayers := make([]fyne.CanvasObject, 0, 5)
+	chaosPlayers := make([]fyne.CanvasObject, 0, 5)
 
 	for _, p := range players {
-		card := mw.createPlayerCard(p)
+		card := mw.createPlayerRow(p)
 		if p.Team == "ORDER" {
-			mw.teamOrderContainer.Add(card)
+			orderPlayers = append(orderPlayers, card)
 		} else {
-			mw.teamChaosContainer.Add(card)
+			chaosPlayers = append(chaosPlayers, card)
 		}
 	}
+
+	// Clear and rebuild atomically
+	mw.teamOrderContainer.Objects = []fyne.CanvasObject{
+		widget.NewLabelWithStyle("ORDER TEAM (MAVİ)", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
+		mw.createTableHeader(),
+	}
+	mw.teamOrderContainer.Objects = append(mw.teamOrderContainer.Objects, orderPlayers...)
+
+	mw.teamChaosContainer.Objects = []fyne.CanvasObject{
+		widget.NewLabelWithStyle("CHAOS TEAM (KIRMIZI)", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
+		mw.createTableHeader(),
+	}
+	mw.teamChaosContainer.Objects = append(mw.teamChaosContainer.Objects, chaosPlayers...)
 
 	mw.teamOrderContainer.Refresh()
 	mw.teamChaosContainer.Refresh()
 }
 
-func (mw *MainWindow) createPlayerCard(p lcu.LivePlayer) fyne.CanvasObject {
-	// Basic Info
-	nameLabel := widget.NewLabelWithStyle(fmt.Sprintf("%s (%s)", p.SummonerName, p.ChampionName), fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
-	kdaLabel := widget.NewLabel(fmt.Sprintf("KDA: %d/%d/%d | CS: %d", p.Scores.Kills, p.Scores.Deaths, p.Scores.Assists, p.Scores.CreepScore))
+func (mw *MainWindow) createTableHeader() fyne.CanvasObject {
+	return container.NewHBox(
+		mw.fixedLabel("Şampiyon", 120, true),
+		mw.fixedLabel("Sihirdar", 120, true),
+		mw.fixedLabel("KDA", 100, true),
+		mw.fixedLabel("CS", 50, true),
+		widget.NewLabelWithStyle("İtemler", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+	)
+}
 
-	// Items Summary (Just count or first few)
-	itemCount := 0
+func (mw *MainWindow) createPlayerRow(p lcu.LivePlayer) fyne.CanvasObject {
+	// Columns
+	champLabel := mw.fixedLabel(p.ChampionName, 120, false)
+	nameLabel := mw.fixedLabel(p.SummonerName, 120, false)
+	kdaLabel := mw.fixedLabel(fmt.Sprintf("%d/%d/%d", p.Scores.Kills, p.Scores.Deaths, p.Scores.Assists), 100, false)
+	csLabel := mw.fixedLabel(fmt.Sprintf("%d", p.Scores.CreepScore), 50, false)
+
+	// Items as images in horizontal row
+	itemsRow := container.NewHBox()
 	for _, item := range p.Items {
 		if item.ItemID != 0 {
-			itemCount++
+			itemImg := mw.createItemImage(item.ItemID)
+			itemsRow.Add(itemImg)
 		}
 	}
-	itemsLabel := widget.NewLabel(fmt.Sprintf("İtemler: %d", itemCount))
+	// Fill empty slots
+	for len(itemsRow.Objects) < 6 {
+		emptySlot := canvas.NewRectangle(color.RGBA{R: 20, G: 20, B: 20, A: 255})
+		emptySlot.SetMinSize(fyne.NewSize(32, 32))
+		itemsRow.Add(emptySlot)
+	}
 
-	// Detail Button
-	detailBtn := widget.NewButton("Detay", func() {
-		mw.showPlayerDetail(p)
-	})
-
-	// Layout
-	content := container.NewVBox(
+	// Row Content
+	content := container.NewHBox(
+		champLabel,
 		nameLabel,
 		kdaLabel,
-		itemsLabel,
-		detailBtn,
+		csLabel,
+		itemsRow,
 	)
 
-	return widget.NewCard("", "", content)
+	// Clickable Wrapper
+	return NewClickableRow(content, func() {
+		mw.showPlayerDetail(p)
+	})
+}
+
+// fixedLabel creates a label with fixed width
+func (mw *MainWindow) fixedLabel(text string, width float32, bold bool) fyne.CanvasObject {
+	style := fyne.TextStyle{Bold: bold}
+	label := widget.NewLabelWithStyle(text, fyne.TextAlignLeading, style)
+	label.Truncation = fyne.TextTruncateEllipsis
+
+	return container.New(&fixedWidthLayout{width: width}, label)
+}
+
+// fixedWidthLayout enforces a fixed width
+type fixedWidthLayout struct {
+	width float32
+}
+
+func (l *fixedWidthLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	for _, o := range objects {
+		o.Resize(fyne.NewSize(l.width, size.Height))
+		o.Move(fyne.NewPos(0, 0))
+	}
+}
+
+func (l *fixedWidthLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	h := float32(0)
+	for _, o := range objects {
+		h = fyne.Max(h, o.MinSize().Height)
+	}
+	return fyne.NewSize(l.width, h)
+}
+
+// ClickableRow is a custom widget that handles tap events
+type ClickableRow struct {
+	widget.BaseWidget
+	OnTap   func()
+	Content fyne.CanvasObject
+}
+
+func NewClickableRow(content fyne.CanvasObject, onTap func()) *ClickableRow {
+	c := &ClickableRow{OnTap: onTap, Content: content}
+	c.ExtendBaseWidget(c)
+	return c
+}
+
+func (c *ClickableRow) CreateRenderer() fyne.WidgetRenderer {
+	return widget.NewSimpleRenderer(c.Content)
+}
+
+func (c *ClickableRow) Tapped(_ *fyne.PointEvent) {
+	if c.OnTap != nil {
+		c.OnTap()
+	}
 }
 
 func (mw *MainWindow) showPlayerDetail(p lcu.LivePlayer) {
@@ -227,4 +380,33 @@ func (mw *MainWindow) showPlayerDetail(p lcu.LivePlayer) {
 	d := dialog.NewCustom("Oyuncu Detayı", "Kapat", container.NewVScroll(content), mw.window)
 	d.Resize(fyne.NewSize(400, 500))
 	d.Show()
+}
+
+// createItemImage creates an item icon from DDragon
+func (mw *MainWindow) createItemImage(itemID int) fyne.CanvasObject {
+	// Check cache first
+	if res, ok := mw.imageCache[itemID]; ok {
+		img := canvas.NewImageFromResource(res)
+		img.FillMode = canvas.ImageFillContain
+		img.SetMinSize(fyne.NewSize(32, 32))
+		return img
+	}
+
+	// Data Dragon item icon URL
+	itemURL := fmt.Sprintf("https://ddragon.leagueoflegends.com/cdn/14.1.1/img/item/%d.png", itemID)
+
+	// Load resource (blocking but cached next time)
+	res, err := fyne.LoadResourceFromURLString(itemURL)
+	if err == nil {
+		mw.imageCache[itemID] = res
+		img := canvas.NewImageFromResource(res)
+		img.FillMode = canvas.ImageFillContain
+		img.SetMinSize(fyne.NewSize(32, 32))
+		return img
+	}
+
+	// Fallback
+	rect := canvas.NewRectangle(color.RGBA{R: 50, G: 100, B: 150, A: 255})
+	rect.SetMinSize(fyne.NewSize(32, 32))
+	return rect
 }
